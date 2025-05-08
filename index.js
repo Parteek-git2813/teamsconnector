@@ -50,11 +50,6 @@ app.post('/api/messages', (req, res) => {
       const userId = context.activity.from.id;
       console.log('User message:', userMessage, 'User ID:', userId);
 
-      // Remove @TeamBot prefix if present
-      if (userMessage.startsWith('@TeamBot')) {
-        userMessage = userMessage.replace(/^@TeamBot\s*/i, '');
-      }
-
       // Initialize conversation history for the user if it doesn't exist
       if (!conversationHistory[userId]) {
         conversationHistory[userId] = [
