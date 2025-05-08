@@ -23,7 +23,7 @@ const adapter = new BotFrameworkAdapter({
 
 // Azure Open AI credentials from .env
 const AZURE_OPENAI_ENDPOINT = process.env.AZURE_OPENAI_ENDPOINT;
-const AZURE_OPENAI_API_KEY = process.env.AZURE_OPENAI_API_KEY; // Use API key
+const AZURE_OPENAI_API_KEY = process.env.AZURE_OPENAI_API_KEY;
 const AZURE_OPENAI_DEPLOYMENT = process.env.AZURE_OPENAI_DEPLOYMENT;
 const API_VERSION = process.env.OPENAI_API_VERSION || '2024-05-01-preview';
 
@@ -38,20 +38,69 @@ const client = new AzureOpenAI({
 // Store conversation history in memory (keyed by user ID)
 const conversationHistory = {};
 
+// Bot version for info command
+const BOT_VERSION = '1.0.0';
+
 app.post('/api/messages', (req, res) => {
   console.log('Processing activity...');
   adapter.processActivity(req, res, async (context) => {
     console.log('Activity received:', JSON.stringify(context.activity, null, 2));
     if (context.activity.type === 'message') {
-      const userMessage = context.activity.text;
+      let userMessage = context.activity.text.trim();
       const userId = context.activity.from.id;
       console.log('User message:', userMessage, 'User ID:', userId);
+
+      // Remove @TeamBot prefix if present
+      if (userMessage.startsWith('@TeamBot')) {
+        userMessage = userMessage.replace(/^@TeamBot\s*/i, '');
+      }
 
       // Initialize conversation history for the user if it doesn't exist
       if (!conversationHistory[userId]) {
         conversationHistory[userId] = [
           { role: 'system', content: 'You are a helpful assistant.' }
         ];
+      }
+
+      // Handle commands
+      const commandMatch = userMessage.match(/^(\w+)\b/);
+      const command = commandMatch ? commandMatch[1].toLowerCase() : null;
+
+      if (command === 'summarize') {
+        // Summarize last 5 messages
+        const recentMessages = conversationHistory[userId]
+          .filter(msg => msg.role === 'user' || msg.role === 'assistant')
+          .slice(-5);
+        if (recentMessages.length === 0) {
+          await context.sendActivity('No messages to summarize.');
+          return;
+        }
+        const summaryPrompt = `Summarize the following conversation in 2-3 sentences:\n${recentMessages.map(msg => `${msg.role}: ${msg.content}`).join('\n')}`;
+        try {
+          const response = await client.chat.completions.create({
+            messages: [{ role: 'user', content: summaryPrompt }],
+            temperature: 0.7,
+            model: ''
+          });
+          const summary = response.choices[0]?.message?.content || 'Unable to generate summary.';
+          await context.sendActivity(summary);
+        } catch (err) {
+          console.error('Error summarizing:', err.message);
+          await context.sendActivity('Sorry, something went wrong while summarizing.');
+        }
+        return;
+      } else if (command === 'clear') {
+        // Clear conversation history
+        conversationHistory[userId] = [
+          { role: 'system', content: 'You are a helpful assistant.' }
+        ];
+        await context.sendActivity('Conversation history cleared.');
+        return;
+      } else if (command === 'info') {
+        // Display bot info
+        const infoMessage = `Teams Chatbot v${BOT_VERSION}\nPowered by Auxiliobits.\nCommands: summarize, clear, info`;
+        await context.sendActivity(infoMessage);
+        return;
       }
 
       // Add the user's message to the conversation history
@@ -63,7 +112,7 @@ app.post('/api/messages', (req, res) => {
       }
 
       try {
-        // Call Azure Open AI using the AzureOpenAI client
+        // Call Azure Open AI for non-command messages
         const response = await client.chat.completions.create({
           messages: conversationHistory[userId],
           temperature: 0.7,
