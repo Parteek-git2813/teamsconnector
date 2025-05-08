@@ -66,7 +66,6 @@ app.post('/api/messages', (req, res) => {
         // Call Azure Open AI using the AzureOpenAI client
         const response = await client.chat.completions.create({
           messages: conversationHistory[userId],
-          max_tokens: 150,
           temperature: 0.7,
           model: ''
         });
